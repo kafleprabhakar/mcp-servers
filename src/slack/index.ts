@@ -175,6 +175,40 @@ const getThreadRepliesTool: Tool = {
   },
 };
 
+const listImChannelsTool: Tool = {
+  name: "slack_list_im_channels",
+  description: "List direct message channels in the workspace",
+  inputSchema: {
+    type: "object",
+    properties: {
+      limit: {
+        type: "number",
+        description: "Maximum number of channels to return (default 100, max 200)",
+        default: 100,
+      },
+      cursor: {
+        type: "string",
+        description: "Pagination cursor for next page of results",
+      },
+    },
+  },
+};
+
+const getImChannelTool: Tool = {
+  name: "slack_get_im_channel",
+  description: "Get or open a direct message channel with a specific user",
+  inputSchema: {
+    type: "object",
+    properties: {
+      user_id: {
+        type: "string",
+        description: "The ID of the user to open a direct message with",
+      },
+    },
+    required: ["user_id"],
+  },
+};
+
 const getUsersTool: Tool = {
   name: "slack_get_users",
   description:
@@ -317,6 +351,37 @@ class SlackClient {
       { headers: this.botHeaders },
     );
 
+    return response.json();
+  }
+
+  async getImChannels(limit: number = 100, cursor?: string): Promise<any> {
+    const params = new URLSearchParams({
+      types: "im",
+      limit: Math.min(limit, 200).toString(),
+      team_id: process.env.SLACK_TEAM_ID!,
+    });
+  
+    if (cursor) {
+      params.append("cursor", cursor);
+    }
+  
+    const response = await fetch(
+      `https://slack.com/api/conversations.list?${params}`,
+      { headers: this.botHeaders },
+    );
+  
+    return response.json();
+  }
+
+  async getImChannel(user_id: string): Promise<any> {
+    const response = await fetch("https://slack.com/api/conversations.open", {
+      method: "POST",
+      headers: this.botHeaders,
+      body: JSON.stringify({
+        users: user_id,
+      }),
+    });
+  
     return response.json();
   }
 
@@ -483,6 +548,28 @@ async function main() {
             };
           }
 
+          case "slack_list_im_channels": {
+            const args = request.params.arguments as unknown as ListChannelsArgs;
+            const response = await slackClient.getImChannels(
+              args.limit,
+              args.cursor,
+            );
+            return {
+              content: [{ type: "text", text: JSON.stringify(response) }],
+            };
+          }
+          
+          case "slack_get_im_channel": {
+            const args = request.params.arguments as unknown as { user_id: string };
+            if (!args.user_id) {
+              throw new Error("Missing required argument: user_id");
+            }
+            const response = await slackClient.getImChannel(args.user_id);
+            return {
+              content: [{ type: "text", text: JSON.stringify(response) }],
+            };
+          }
+
           case "slack_get_users": {
             const args = request.params.arguments as unknown as GetUsersArgs;
             const response = await slackClient.getUsers(
@@ -535,6 +622,8 @@ async function main() {
         addReactionTool,
         getChannelHistoryTool,
         getThreadRepliesTool,
+        listImChannelsTool,
+        getImChannelTool,
         getUsersTool,
         getUserProfileTool,
       ],
